@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="no">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AuksjonOnline</title>
+  <link rel="stylesheet" href="style.css" />
+  <!-- Gun.js: real-time P2P database, no account needed -->
+  <script src="https://cdn.jsdelivr.net/npm/gun/gun.js"></script>
+</head>
+<body>
+
+<!-- ========== PANTALLA: LOGIN/REGISTRO ========== -->
+<div id="screen-auth" class="screen active">
+  <div class="auth-box">
+    <div class="logo">🔨 AuksjonOnline</div>
+    <p class="subtitle">Registrer deg for å delta i budgivningen</p>
+
+    <div class="tabs">
+      <button class="tab-btn active" onclick="switchTab('login')">Logg inn</button>
+      <button class="tab-btn" onclick="switchTab('register')">Registrer deg</button>
+    </div>
+
+    <!-- LOGIN -->
+    <div id="tab-login" class="tab-content active">
+      <div class="form-group">
+        <label>E-post</label>
+        <input type="email" id="login-email" placeholder="din@epost.no" />
+      </div>
+      <div id="login-error" class="error-msg hidden"></div>
+      <button class="btn btn-primary full-width" onclick="login()">Logg inn</button>
+    </div>
+
+    <!-- REGISTER -->
+    <div id="tab-register" class="tab-content">
+      <div class="form-group">
+        <label>Navn</label>
+        <input type="text" id="reg-name" placeholder="Ditt navn" />
+      </div>
+      <div class="form-group">
+        <label>E-post</label>
+        <input type="email" id="reg-email" placeholder="din@epost.no" />
+      </div>
+      <div class="form-group">
+        <label>Er du arrangør?</label>
+        <div class="toggle-row">
+          <label class="toggle">
+            <input type="checkbox" id="reg-is-organizer" onchange="toggleOrganizerCode()" />
+            <span class="slider"></span>
+          </label>
+          <span id="organizer-label">Nei</span>
+        </div>
+      </div>
+      <div class="form-group hidden" id="organizer-code-group">
+        <label>Arrangørkode</label>
+        <input type="password" id="reg-org-code" placeholder="Hemmelig kode" />
+      </div>
+      <div id="reg-error" class="error-msg hidden"></div>
+      <button class="btn btn-primary full-width" onclick="register()">Opprett konto</button>
+    </div>
+  </div>
+</div>
+
+<!-- ========== PANTALLA: SUBASTA PRINCIPAL ========== -->
+<div id="screen-main" class="screen">
+
+  <!-- NAVBAR -->
+  <nav class="navbar">
+    <div class="nav-logo">🔨 AuksjonOnline</div>
+    <div class="nav-actions">
+      <span id="nav-username" class="nav-user"></span>
+      <button class="btn btn-sm btn-outline" onclick="logout()">Logg ut</button>
+    </div>
+  </nav>
+
+  <!-- ORGANIZER TOOLBAR -->
+  <div id="organizer-toolbar" class="organizer-toolbar hidden">
+    <span>Arrangørpanel</span>
+    <button class="btn btn-sm btn-accent" onclick="openAddItemModal()">+ Legg til objekt</button>
+  </div>
+
+  <!-- CONNECTION STATUS -->
+  <div id="conn-bar" class="conn-bar conn-connecting">
+    <span id="conn-dot" class="conn-dot"></span>
+    <span id="conn-text">Kobler til sanntidsdatabase…</span>
+  </div>
+
+  <!-- ITEMS GRID -->
+  <div class="main-container">
+    <div class="section-header">
+      <h2>Objekter til auksjon</h2>
+      <div class="filters">
+        <select id="filter-status" onchange="renderItems()">
+          <option value="all">Alle</option>
+          <option value="active">Aktive</option>
+          <option value="ended">Avsluttet</option>
+        </select>
+        <input type="text" id="filter-search" placeholder="Søk..." oninput="renderItems()" />
+      </div>
+    </div>
+    <div id="items-grid" class="items-grid"></div>
+    <div id="no-items" class="empty-state hidden">
+      <div class="empty-icon">📦</div>
+      <p>Ingen objekter i auksjonen ennå</p>
+    </div>
+  </div>
+</div>
+
+<!-- ========== MODAL: DETALLE DEL OBJETO ========== -->
+<div id="modal-item" class="modal-overlay hidden" onclick="closeModalOnOverlay(event, 'modal-item')">
+  <div class="modal">
+    <button class="modal-close" onclick="closeModal('modal-item')">✕</button>
+    <div id="modal-item-content"></div>
+  </div>
+</div>
+
+<!-- ========== MODAL: AÑADIR OBJETO (ORGANIZADOR) ========== -->
+<div id="modal-add" class="modal-overlay hidden" onclick="closeModalOnOverlay(event, 'modal-add')">
+  <div class="modal modal-sm">
+    <button class="modal-close" onclick="closeModal('modal-add')">✕</button>
+    <h3>Legg til objekt i auksjonen</h3>
+
+    <div class="form-group">
+      <label>Tittel *</label>
+      <input type="text" id="add-title" placeholder="Navn på objektet" />
+    </div>
+    <div class="form-group">
+      <label>Beskrivelse</label>
+      <textarea id="add-desc" rows="3" placeholder="Beskrivelse av objektet..."></textarea>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>Startpris (€) *</label>
+        <input type="number" id="add-start-price" min="0" step="0.01" placeholder="0.00" />
+      </div>
+      <div class="form-group">
+        <label>Minimumsøkning (€)</label>
+        <input type="number" id="add-min-increment" min="0" step="0.01" placeholder="1.00" />
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>Sluttdato *</label>
+        <input type="date" id="add-end-date" />
+      </div>
+      <div class="form-group">
+        <label>Slutttid *</label>
+        <input type="time" id="add-end-time" />
+      </div>
+    </div>
+    <div class="form-group">
+      <label>Bilde (valgfritt)</label>
+      <div class="img-upload-zone" id="img-upload-zone"
+           onclick="document.getElementById('add-image-file').click()"
+           ondragover="event.preventDefault(); this.classList.add('drag-over')"
+           ondragleave="this.classList.remove('drag-over')"
+           ondrop="handleImageDrop(event)">
+        <div id="img-upload-placeholder">
+          <span class="img-upload-icon">🖼️</span>
+          <span>Klikk eller dra bilde hit</span>
+          <span class="img-upload-hint">JPG, PNG, GIF, WEBP &mdash; maks 5 MB</span>
+        </div>
+        <img id="img-preview" class="img-preview hidden" alt="Forhåndsvisning" />
+      </div>
+      <input type="file" id="add-image-file" accept="image/*" class="hidden" onchange="handleImageFile(event)" />
+      <div class="img-upload-actions hidden" id="img-upload-actions">
+        <button type="button" class="btn btn-sm btn-outline" onclick="clearImage()">Fjern bilde</button>
+        <span id="img-file-name" class="img-file-name"></span>
+      </div>
+      <div class="img-url-row">
+        <span class="img-url-label">eller lim inn URL:</span>
+        <input type="url" id="add-image-url" placeholder="https://..." oninput="handleImageUrl(this.value)" />
+      </div>
+    </div>
+    <div id="add-error" class="error-msg hidden"></div>
+    <div class="modal-actions">
+      <button class="btn btn-outline" onclick="closeModal('modal-add')">Avbryt</button>
+      <button class="btn btn-primary" onclick="addItem()">Publiser objekt</button>
+    </div>
+  </div>
+</div>
+
+<!-- ========== MODAL: CONFIRMAR ELIMINAR ========== -->
+<div id="modal-confirm" class="modal-overlay hidden" onclick="closeModalOnOverlay(event, 'modal-confirm')">
+  <div class="modal modal-xs">
+    <h3>Slett objekt?</h3>
+    <p>Denne handlingen kan ikke angres.</p>
+    <div class="modal-actions">
+      <button class="btn btn-outline" onclick="closeModal('modal-confirm')">Avbryt</button>
+      <button class="btn btn-danger" id="confirm-delete-btn">Slett</button>
+    </div>
+  </div>
+</div>
+
+<!-- TOAST -->
+<div id="toast" class="toast hidden"></div>
+
+<script src="app.js"></script>
+</body>
+</html>
