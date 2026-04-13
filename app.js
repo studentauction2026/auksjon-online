@@ -88,30 +88,47 @@ gun.on('hi',  () => setConnStatus('connected'));
 gun.on('bye', () => setConnStatus('error'));
 
 /* ================================================================
-   SESSION + USERS  (localStorage — enhetsspesifikk)
+   SESSION  (localStorage — husker hvem som er logget inn på denne enheten)
+   USERS    (Gun.js — delt mellom alle enheter)
 ================================================================ */
 const Session = {
   get:   ()  => JSON.parse(localStorage.getItem('auction_session') || 'null'),
   set:   (v) => localStorage.setItem('auction_session', JSON.stringify(v)),
   clear: ()  => localStorage.removeItem('auction_session'),
 };
-const Users = {
-  getAll: ()     => JSON.parse(localStorage.getItem('auction_users') || '[]'),
-  save:   (list) => localStorage.setItem('auction_users', JSON.stringify(list)),
-  find:   (email)=> Users.getAll().find(u => u.email === email) || null,
-  add:    (user) => { const l = Users.getAll(); l.push(user); Users.save(l); },
-};
+
+// Konverterer email til sikker Gun-nøkkel (ingen punktum/kryllalfa)
+function emailKey(email) { return email.replace(/[.@]/g, '_'); }
+
+let usersMap = new Map(); // emailKey → user (lokal cache fra Gun)
+
+db.get('users').map().on((data, key) => {
+  if (!data || data._del) {
+    usersMap.delete(key);
+  } else {
+    const u = {};
+    Object.keys(data).forEach(k => { if (k !== '_') u[k] = data[k]; });
+    usersMap.set(key, u);
+  }
+});
+
+function findUser(email) { return usersMap.get(emailKey(email)) || null; }
 
 /* ================================================================
    INITIALISERING
 ================================================================ */
 document.addEventListener('DOMContentLoaded', () => {
   const session = Session.get();
-  if (session) {
-    const user = Users.find(session.email);
+  if (!session) { showAuth(); return; }
+
+  // Gi Gun litt tid til å sende brukerdata før vi sjekker
+  const tryRestore = (attempts) => {
+    const user = findUser(session.email);
     if (user) { currentUser = user; showMain(); return; }
-  }
-  showAuth();
+    if (attempts > 0) setTimeout(() => tryRestore(attempts - 1), 400);
+    else showAuth(); // timeout — vis login
+  };
+  setTimeout(() => tryRestore(8), 300);
 });
 
 /* ================================================================
@@ -163,41 +180,65 @@ function login() {
     showError('login-error', 'Skriv inn en gyldig e-postadresse.');
     return;
   }
-  const user = Users.find(email);
-  if (!user) {
-    showError('login-error', 'Det finnes ingen konto med den e-postadressen. Registrer deg først.');
-    return;
-  }
-  currentUser = user;
-  Session.set({ email: user.email });
-  showMain();
-  showToast(`Velkommen tilbake, ${user.name}!`, 'success');
+
+  // Søk i lokal cache først, så Gun direkte
+  const tryLogin = (user) => {
+    if (!user) {
+      showError('login-error', 'Det finnes ingen konto med den e-postadressen. Registrer deg først.');
+      return;
+    }
+    currentUser = user;
+    Session.set({ email: user.email });
+    showMain();
+    showToast(`Velkommen tilbake, ${user.name}!`, 'success');
+  };
+
+  const cached = findUser(email);
+  if (cached) { tryLogin(cached); return; }
+
+  // Ikke i cache ennå — spør Gun direkte
+  showError('login-error', 'Søker...');
+  db.get('users').get(emailKey(email)).once(data => {
+    document.getElementById('login-error').classList.add('hidden');
+    if (data && !data._del && data.email) tryLogin(data);
+    else showError('login-error', 'Det finnes ingen konto med den e-postadressen. Registrer deg først.');
+  });
 }
 
 function register() {
   clearErrors();
-  const name     = document.getElementById('reg-name').value.trim();
-  const email    = document.getElementById('reg-email').value.trim().toLowerCase();
-  const isOrg    = document.getElementById('reg-is-organizer').checked;
-  const orgCode  = document.getElementById('reg-org-code').value.trim();
+  const name    = document.getElementById('reg-name').value.trim();
+  const email   = document.getElementById('reg-email').value.trim().toLowerCase();
+  const isOrg   = document.getElementById('reg-is-organizer').checked;
+  const orgCode = document.getElementById('reg-org-code').value.trim();
 
   if (!name)              { showError('reg-error', 'Navn er påkrevd.'); return; }
   if (!validEmail(email)) { showError('reg-error', 'Skriv inn en gyldig e-postadresse.'); return; }
-  if (isOrg && orgCode !== ORG_CODE) {
-    showError('reg-error', 'Feil arrangørkode.'); return;
-  }
+  if (isOrg && orgCode !== ORG_CODE) { showError('reg-error', 'Feil arrangørkode.'); return; }
 
-  if (Users.find(email)) {
+  const doRegister = () => {
+    const newUser = { id: uid(), name, email, isOrganizer: isOrg ? true : false, createdAt: now() };
+    db.get('users').get(emailKey(email)).put(newUser);
+    currentUser = newUser;
+    Session.set({ email });
+    showMain();
+    showToast(`Konto opprettet! Velkommen, ${name}!`, 'success');
+  };
+
+  // Sjekk om e-posten allerede er registrert
+  if (findUser(email)) {
     showError('reg-error', 'Det finnes allerede en konto med den e-postadressen. Bruk Logg inn-fanen.');
     return;
   }
-
-  const newUser = { id: uid(), name, email, isOrganizer: isOrg, createdAt: now() };
-  Users.add(newUser);
-  currentUser = newUser;
-  Session.set({ email });
-  showMain();
-  showToast(`Konto opprettet! Velkommen, ${name}!`, 'success');
+  showError('reg-error', 'Sjekker...');
+  db.get('users').get(emailKey(email)).once(data => {
+    document.getElementById('reg-error').classList.add('hidden');
+    if (data && !data._del && data.email) {
+      showError('reg-error', 'Det finnes allerede en konto med den e-postadressen. Bruk Logg inn-fanen.');
+    } else {
+      doRegister();
+    }
+  });
 }
 
 function logout() {
