@@ -9,9 +9,8 @@ const ORG_CODE = 'subasta2026'; // ← Endre dette til din hemmelige kode
    GUN.JS — SANNTIDS P2P DATABASE  (ingen konto nødvendig)
 ================================================================ */
 const gun = Gun([
-  'https://gun-manhattan.herokuapp.com/gun',
-  'https://peer.wallie.io/gun',
-  'https://gundb-relay-mlc.glitch.me/gun',
+  'https://relay.peer.ooo/gun',
+  'https://gun.eco/gun',
 ]);
 const APP_NS = 'auksjon-live-2026'; // ← endre for "privat" kanal
 const db = gun.get(APP_NS);
